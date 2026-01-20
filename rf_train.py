@@ -1,41 +1,41 @@
 import pandas as pd
 import numpy as np
-import joblib
-from sklearn.model_selection import train_test_split
+import pickle
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import r2_score
+from sklearn.metrics import mean_absolute_error, r2_score
 
-# 1. Load Data
-# (Ensures we have the data locally, similar to the CSV in your screenshot)
-try:
-    df = pd.read_csv('insurance.csv')
-    print("Loaded insurance.csv from local file.")
-except FileNotFoundError:
-    print("Downloading dataset...")
-    url = "https://raw.githubusercontent.com/stedy/Machine-Learning-with-R-datasets/master/insurance.csv"
-    df = pd.read_csv(url)
-    df.to_csv('insurance.csv', index=False)
+# --- Task 1: Data Loading ---
+df = pd.read_csv('insurance.csv')
+print("Loaded insurance.csv from local file.")
 
-# 2. Preprocessing
-# Drop duplicates/missing
+
+# --- Task 2: Data Preprocessing ---
+#  Handle missing/duplicates
 df = df.drop_duplicates().dropna()
 
-# Feature Engineering: Weight Status
-def classify_bmi(bmi):
+#  Outlier Removal (BMI)
+Q1 = df['bmi'].quantile(0.25)
+Q3 = df['bmi'].quantile(0.75)
+IQR = Q3 - Q1
+df = df[(df['bmi'] >= (Q1 - 1.5 * IQR)) & (df['bmi'] <= (Q3 + 1.5 * IQR))]
+
+#  Feature Engineering (Weight Status)
+def cata_bmi(bmi):
     if bmi < 18.5: return 'underweight'
     elif 18.5 <= bmi < 25: return 'normal'
     elif 25 <= bmi < 30: return 'overweight'
     else: return 'obese'
 
-df['weight_status'] = df['bmi'].apply(classify_bmi)
+df['weight_status'] = df['bmi'].apply(cata_bmi)
 
 X = df.drop('charges', axis=1)
 y = df['charges']
 
-# 3. Pipeline Construction
+# --- Task 3: Pipeline Creation ---
 num_features = ['age', 'bmi', 'children']
 cat_features = ['sex', 'smoker', 'region', 'weight_status']
 
@@ -50,19 +50,39 @@ preprocessor = ColumnTransformer(
 
 pipeline = Pipeline(steps=[
     ('preprocessor', preprocessor),
-    ('regressor', RandomForestRegressor(n_estimators=100, random_state=42))
+    ('regressor', RandomForestRegressor(random_state=42))
 ])
 
-# 4. Training
+# --- Task 5: Training Setup ---
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-print("Training Model...")
-pipeline.fit(X_train, y_train)
+# --- Task 7: Hyperparameter Tuning (Grid Search) ---
 
-# 5. Evaluation
-score = pipeline.score(X_test, y_test)
-print(f"Model Training Complete. R2 Score: {score:.4f}")
+print("Starting Hyperparameter Tuning (this may take a few seconds)...")
+param_grid = {
+    'regressor__n_estimators': [50, 100],
+    'regressor__max_depth': [None, 10],
+    'regressor__min_samples_split': [2, 5]
+}
 
-# 6. Save the Pipeline (Naming it similar to your screenshot)
-joblib.dump(pipeline, 'insurance_rf_pipeline.pkl')
-print("Pipeline saved as 'insurance_rf_pipeline.pkl'")
+grid_search = GridSearchCV(pipeline, param_grid, cv=3, scoring='r2', n_jobs=-1)
+grid_search.fit(X_train, y_train)
+
+# --- Task 8: Best Model Selection ---
+best_model = grid_search.best_estimator_
+print(f"Best Parameters Found: {grid_search.best_params_}")
+
+# --- Task 9: Model Performance Evaluation ---
+y_pred = best_model.predict(X_test)
+r2 = r2_score(y_test, y_pred)
+mae = mean_absolute_error(y_test, y_pred)
+
+print("\n--- Final Evaluation on Test Set ---")
+print(f"R2 Score: {r2:.4f}")
+print(f"MAE: {mae:.2f}")
+
+# --- Saving the Model with Pickle ---
+print("\nSaving best model to 'insurance_rf_pipeline.pkl'...")
+with open("insurance_rf_pipeline.pkl", "wb") as f:
+    pickle.dump(best_model, f)
+
